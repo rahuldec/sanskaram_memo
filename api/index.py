@@ -1,5 +1,6 @@
-from flask import Flask, request, Response
-import io, zipfile, json, requests as http
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse, JSONResponse
+import io, zipfile, requests as http
 from collections import defaultdict
 
 from reportlab.lib.pagesizes import A4
@@ -7,7 +8,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
-app = Flask(__name__)
+app = FastAPI()
 
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjpbXSwicXVhbGlmaWNhdGlvbnMiOltdLCJ3b3JrRXhwZXJpZW5jZSI6W10sIm1vYmlsZSI6Ijg3OTg5ODk4OTgiLCJwYXNzd29yZCI6Ijg3OTg5ODk4OTgiLCJuYW1lIjoiVXRpbGl0eSIsInBlcm1pc3Npb25Hcm91cE5hbWUiOiJVdGlsaXR5IiwiZW50aXR5R3JvdXAiOlt7Im5hbWUiOiJTYW5za2FyYW0gVW5pdmVyc2l0eSIsImVudGl0eVR5cGUiOiJ1bml2ZXJzaXR5IiwibG9nbyI6Imh0dHBzOi8vb2tpZWRva2llLWVycC1pbWFnZXMuczMuYXAtc291dGgtMS5hbWF6b25hd3MuY29tL1NVLzIwMjYvMDMvbG9nby8yYjI4OTk4ZTg5NTEzMmFlNzc2NS1TYW5za2FyYW1fVW5pdmVyc2l0eS1sb2dvLmpwZWciLCJxYWMiOiJTVSIsImRpc3BsYXlOYW1lIjoiU2Fuc2thcmFtIFVuaXZlcnNpdHkiLCJlbnRpdHlJZCI6IjY5Y2E1NTZiZTc4N2ZiMDAxMGZmYWIxZiJ9XSwiZW50aXR5IjoiNjljYTU1NmJlNzg3ZmIwMDEwZmZhYjFmIiwic2Vzc2lvbiI6IjIwMjYtMjcgT2RkIiwic3RhdHVzIjp0cnVlLCJfaWQiOiI2YjA2ZGUzYTMwNTM0ZjAwMGZkMWJiNGMiLCJ0b2tlblZlcnNpb24iOjIsImlhdCI6MTc5NTYxMjIxOH0.QMlZ7-HJ3ttGO8g9Su-L6_mU1z2B53_sKUL3dbJvDSY"
 LOGO_URL = "https://okiedokie-erp-images.s3.ap-south-1.amazonaws.com/SU/2026/03/logo/2b28998e895132ae7765-Sanskaram_University-logo.jpeg"
@@ -43,7 +44,6 @@ def build_pdf(g, logo_bytes, exam_date):
             "   Mobile: +91-7056999201, +91-7056999202"
             "   Email: info@sanskaramuniversity.ac.in")
 
-    # Header
     if logo_bytes:
         c.drawImage(ImageReader(io.BytesIO(logo_bytes)), ML, H - 27 * mm,
                     width=16 * mm, height=16 * mm, preserveAspectRatio=True, mask='auto')
@@ -62,7 +62,6 @@ def build_pdf(g, logo_bytes, exam_date):
     c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(W / 2, H - 43 * mm, "MEMO")
 
-    # Fields
     y = H - 53 * mm
     lw = 42 * mm
     _field(c, "Date of Exam", exam_date, ML, y, lw, fw)
@@ -75,7 +74,6 @@ def build_pdf(g, logo_bytes, exam_date):
     y -= LH
     _field(c, "Semester / Batch", g["batch"], ML, y, lw, fw)
 
-    # Dispatched roll numbers
     y -= 8 * mm
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y, "Roll No. of Students whose answer book have been dispatched")
@@ -90,7 +88,6 @@ def build_pdf(g, logo_bytes, exam_date):
         _line(c, ML, y, fw)
         y -= LH
 
-    # Present count
     y -= 3 * mm
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y, "Total number of Students Present")
@@ -98,7 +95,6 @@ def build_pdf(g, logo_bytes, exam_date):
     c.drawString(ML + 65 * mm, y, str(len(g["present"])))
     _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    # Absentees
     y -= LH
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y, "Roll Number of Absentees")
@@ -113,7 +109,6 @@ def build_pdf(g, logo_bytes, exam_date):
         _line(c, ML, y, fw)
         y -= LH
 
-    # Absent count
     y -= 3 * mm
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y, "Total number of Students Absent")
@@ -121,7 +116,6 @@ def build_pdf(g, logo_bytes, exam_date):
     c.drawString(ML + 65 * mm, y, str(len(g["absent"])))
     _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    # Unfair means
     y -= LH + 3 * mm
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y, "Roll Number of Unfair Means Cases")
@@ -134,13 +128,11 @@ def build_pdf(g, logo_bytes, exam_date):
     c.drawString(ML, y + 2 * mm, "Total Number of Unfair Means Cases")
     _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    # Signature
     sig_y = max(y - 20 * mm, 30 * mm)
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(W - MR, sig_y, "Signature")
     c.drawRightString(W - MR, sig_y - 6 * mm, "Center Superintendent")
 
-    # Footer
     c.setLineWidth(1)
     c.line(ML, 20 * mm, W - MR, 20 * mm)
     c.setFont("Helvetica", 7.5)
@@ -151,34 +143,29 @@ def build_pdf(g, logo_bytes, exam_date):
     return buf.read()
 
 
-@app.route("/")
-@app.route("/api/generate")
-def generate():
-    entity = request.args.get("entity")
-    session = request.args.get("session")
-    exam_calendar = request.args.get("examCalendar")
-    exam_type = request.args.get("examType", "regular")
-    exam_date_raw = request.args.get("examDate")
-    exam_date_display = request.args.get("examDateDisplay", "23 November 2026")
-
-    if not all([entity, session, exam_calendar, exam_date_raw]):
-        return {"error": "Missing required params: entity, session, examCalendar, examDate"}, 400
-
-    # Fetch registrations
+@app.get("/")
+@app.get("/api/generate")
+def generate(
+    entity: str,
+    session: str,
+    examCalendar: str,
+    examDate: str,
+    examType: str = "regular",
+    examDateDisplay: str = "23 November 2026",
+):
     api_url = (
         f"{API_BASE}/list/examRegistration"
-        f"?entity={entity}&session={session}&examType={exam_type}"
-        f"&admitCardStatus=approved&examDate={exam_date_raw}&examCalendar={exam_calendar}"
+        f"?entity={entity}&session={session}&examType={examType}"
+        f"&admitCardStatus=approved&examDate={examDate}&examCalendar={examCalendar}"
     )
     try:
         resp = http.get(api_url, headers={"Authorization": TOKEN}, timeout=30)
         registrations = resp.json()
         if not isinstance(registrations, list):
-            return {"error": "ERP API error", "detail": registrations}, 502
+            return JSONResponse({"error": "ERP API error", "detail": registrations}, status_code=502)
     except Exception as e:
-        return {"error": str(e)}, 502
+        return JSONResponse({"error": str(e)}, status_code=502)
 
-    # Group by stream + subject
     groups = defaultdict(lambda: {
         "present": [], "absent": [],
         "course": "", "stream": "", "subject": "", "subjectCode": "", "batch": ""
@@ -195,25 +182,23 @@ def generate():
         (g["present"] if att == "present" else g["absent"]).append(r["studentRegNo"])
 
     if not groups:
-        return {"error": "No registrations found"}, 404
+        return JSONResponse({"error": "No registrations found"}, status_code=404)
 
-    # Fetch logo
     try:
         logo_bytes = http.get(LOGO_URL, timeout=15).content
     except Exception:
         logo_bytes = None
 
-    # Build zip in memory
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for (stream, _), g in sorted(groups.items()):
-            pdf_bytes = build_pdf(g, logo_bytes, exam_date_display)
+            pdf_bytes = build_pdf(g, logo_bytes, examDateDisplay)
             safe = stream.replace("/", "-").replace(" ", "_")[:60]
             zf.writestr(f"Memo_{safe}.pdf", pdf_bytes)
 
-    zip_data = zip_buf.getvalue()
-    return Response(
-        zip_data,
-        mimetype="application/zip",
+    zip_buf.seek(0)
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="ExamMemos.zip"'}
     )
