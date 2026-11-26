@@ -1,21 +1,22 @@
-from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
-import io, zipfile, json, requests
+from flask import Flask, request, Response
+import io, zipfile, json, requests as http
 from collections import defaultdict
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from PIL import Image
 
+app = Flask(__name__)
+
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjpbXSwicXVhbGlmaWNhdGlvbnMiOltdLCJ3b3JrRXhwZXJpZW5jZSI6W10sIm1vYmlsZSI6Ijg3OTg5ODk4OTgiLCJwYXNzd29yZCI6Ijg3OTg5ODk4OTgiLCJuYW1lIjoiVXRpbGl0eSIsInBlcm1pc3Npb25Hcm91cE5hbWUiOiJVdGlsaXR5IiwiZW50aXR5R3JvdXAiOlt7Im5hbWUiOiJTYW5za2FyYW0gVW5pdmVyc2l0eSIsImVudGl0eVR5cGUiOiJ1bml2ZXJzaXR5IiwibG9nbyI6Imh0dHBzOi8vb2tpZWRva2llLWVycC1pbWFnZXMuczMuYXAtc291dGgtMS5hbWF6b25hd3MuY29tL1NVLzIwMjYvMDMvbG9nby8yYjI4OTk4ZTg5NTEzMmFlNzc2NS1TYW5za2FyYW1fVW5pdmVyc2l0eS1sb2dvLmpwZWciLCJxYWMiOiJTVSIsImRpc3BsYXlOYW1lIjoiU2Fuc2thcmFtIFVuaXZlcnNpdHkiLCJlbnRpdHlJZCI6IjY5Y2E1NTZiZTc4N2ZiMDAxMGZmYWIxZiJ9XSwiZW50aXR5IjoiNjljYTU1NmJlNzg3ZmIwMDEwZmZhYjFmIiwic2Vzc2lvbiI6IjIwMjYtMjcgT2RkIiwic3RhdHVzIjp0cnVlLCJfaWQiOiI2YjA2ZGUzYTMwNTM0ZjAwMGZkMWJiNGMiLCJ0b2tlblZlcnNpb24iOjIsImlhdCI6MTc5NTYxMjIxOH0.QMlZ7-HJ3ttGO8g9Su-L6_mU1z2B53_sKUL3dbJvDSY"
 LOGO_URL = "https://okiedokie-erp-images.s3.ap-south-1.amazonaws.com/SU/2026/03/logo/2b28998e895132ae7765-Sanskaram_University-logo.jpeg"
 API_BASE = "https://academic-api.odpay.in/api"
 
 W, H = A4
-MARGIN_L = 15 * mm
-MARGIN_R = 15 * mm
-LINE_H = 7 * mm
+ML = 15 * mm
+MR = 15 * mm
+LH = 7 * mm
 
 
 def _line(c, x, y, w):
@@ -34,120 +35,114 @@ def _chunks(lst, n=8):
     return ["   ".join(lst[i:i + n]) for i in range(0, len(lst), n)] or [""]
 
 
-def build_pdf(group, logo_bytes, exam_date="23 November 2026"):
+def build_pdf(g, logo_bytes, exam_date):
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
-    fw = W - MARGIN_L - MARGIN_R
+    fw = W - ML - MR
+    addr = ("Sanskaram University Address: Patauda, Jhajjar, Haryana, 124108"
+            "   Mobile: +91-7056999201, +91-7056999202"
+            "   Email: info@sanskaramuniversity.ac.in")
 
-    # --- HEADER ---
-    logo_img = ImageReader(io.BytesIO(logo_bytes))
-    c.drawImage(logo_img, MARGIN_L, H - 27 * mm, width=16 * mm, height=16 * mm,
-                preserveAspectRatio=True, mask='auto')
-
+    # Header
+    if logo_bytes:
+        c.drawImage(ImageReader(io.BytesIO(logo_bytes)), ML, H - 27 * mm,
+                    width=16 * mm, height=16 * mm, preserveAspectRatio=True, mask='auto')
     c.setFont("Helvetica-Bold", 15)
     c.drawCentredString(W / 2 + 8 * mm, H - 15 * mm, "SANSKARAM UNIVERSITY, JHAJJAR")
     c.setFont("Helvetica", 9)
     c.drawCentredString(W / 2 + 8 * mm, H - 21 * mm, "Established by Haryana Govt. Act No. 3 of 2024")
-
     c.setLineWidth(1.5)
-    c.line(MARGIN_L, H - 29 * mm, W - MARGIN_R, H - 29 * mm)
+    c.line(ML, H - 29 * mm, W - MR, H - 29 * mm)
     c.setLineWidth(0.5)
-    c.line(MARGIN_L, H - 30.5 * mm, W - MARGIN_R, H - 30.5 * mm)
-
-    addr = ("Sanskaram University Address: Patauda, Jhajjar, Haryana, 124108"
-            "   Mobile: +91-7056999201, +91-7056999202"
-            "   Email: info@sanskaramuniversity.ac.in")
+    c.line(ML, H - 30.5 * mm, W - MR, H - 30.5 * mm)
     c.setFont("Helvetica", 7.5)
     c.drawCentredString(W / 2, H - 34 * mm, addr)
-
     c.setLineWidth(1)
-    c.line(MARGIN_L, H - 36 * mm, W - MARGIN_R, H - 36 * mm)
-
+    c.line(ML, H - 36 * mm, W - MR, H - 36 * mm)
     c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(W / 2, H - 43 * mm, "MEMO")
 
-    # --- FIELDS ---
+    # Fields
     y = H - 53 * mm
     lw = 42 * mm
-    _field(c, "Date of Exam", exam_date, MARGIN_L, y, lw, fw)
-    y -= LINE_H
-    _field(c, "Name of the Program", group["course"], MARGIN_L, y, lw, fw)
-    y -= LINE_H
-    _field(c, "Course Name", group["subject"], MARGIN_L, y, lw, fw)
-    y -= LINE_H
-    _field(c, "Course Code", group["subjectCode"], MARGIN_L, y, lw, fw)
-    y -= LINE_H
-    _field(c, "Semester / Batch", group["batch"], MARGIN_L, y, lw, fw)
+    _field(c, "Date of Exam", exam_date, ML, y, lw, fw)
+    y -= LH
+    _field(c, "Name of the Program", g["course"], ML, y, lw, fw)
+    y -= LH
+    _field(c, "Course Name", g["subject"], ML, y, lw, fw)
+    y -= LH
+    _field(c, "Course Code", g["subjectCode"], ML, y, lw, fw)
+    y -= LH
+    _field(c, "Semester / Batch", g["batch"], ML, y, lw, fw)
 
-    # --- DISPATCHED ROLL NOS ---
+    # Dispatched roll numbers
     y -= 8 * mm
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(MARGIN_L, y, "Roll No. of Students whose answer book have been dispatched")
+    c.drawString(ML, y, "Roll No. of Students whose answer book have been dispatched")
     y -= 4 * mm
-    rows = _chunks(sorted(group["present"]))
+    rows = _chunks(sorted(g["present"]))
     for row in rows:
         c.setFont("Helvetica", 9)
-        c.drawString(MARGIN_L + 2 * mm, y, row)
-        _line(c, MARGIN_L, y, fw)
-        y -= LINE_H
+        c.drawString(ML + 2 * mm, y, row)
+        _line(c, ML, y, fw)
+        y -= LH
     for _ in range(max(0, 5 - len(rows))):
-        _line(c, MARGIN_L, y, fw)
-        y -= LINE_H
+        _line(c, ML, y, fw)
+        y -= LH
 
-    # --- PRESENT COUNT ---
+    # Present count
     y -= 3 * mm
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(MARGIN_L, y, "Total number of Students Present")
+    c.drawString(ML, y, "Total number of Students Present")
     c.setFont("Helvetica", 9)
-    c.drawString(MARGIN_L + 65 * mm, y, str(len(group["present"])))
-    _line(c, MARGIN_L + 65 * mm, y, fw - 65 * mm)
+    c.drawString(ML + 65 * mm, y, str(len(g["present"])))
+    _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    # --- ABSENTEES ---
-    y -= LINE_H
+    # Absentees
+    y -= LH
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(MARGIN_L, y, "Roll Number of Absentees")
+    c.drawString(ML, y, "Roll Number of Absentees")
     y -= 4 * mm
-    abs_rows = _chunks(sorted(group["absent"]))
+    abs_rows = _chunks(sorted(g["absent"]))
     for row in abs_rows:
         c.setFont("Helvetica", 9)
-        c.drawString(MARGIN_L + 2 * mm, y, row)
-        _line(c, MARGIN_L, y, fw)
-        y -= LINE_H
+        c.drawString(ML + 2 * mm, y, row)
+        _line(c, ML, y, fw)
+        y -= LH
     for _ in range(max(0, 3 - len(abs_rows))):
-        _line(c, MARGIN_L, y, fw)
-        y -= LINE_H
+        _line(c, ML, y, fw)
+        y -= LH
 
-    # --- ABSENT COUNT ---
+    # Absent count
     y -= 3 * mm
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(MARGIN_L, y, "Total number of Students Absent")
+    c.drawString(ML, y, "Total number of Students Absent")
     c.setFont("Helvetica", 9)
-    c.drawString(MARGIN_L + 65 * mm, y, str(len(group["absent"])))
-    _line(c, MARGIN_L + 65 * mm, y, fw - 65 * mm)
+    c.drawString(ML + 65 * mm, y, str(len(g["absent"])))
+    _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    # --- UNFAIR MEANS ---
-    y -= LINE_H + 3 * mm
+    # Unfair means
+    y -= LH + 3 * mm
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(MARGIN_L, y, "Roll Number of Unfair Means Cases")
-    _line(c, MARGIN_L + 65 * mm, y, fw - 65 * mm)
-    y -= LINE_H
-    _line(c, MARGIN_L, y, fw)
-    y -= LINE_H
-    _line(c, MARGIN_L, y, fw)
+    c.drawString(ML, y, "Roll Number of Unfair Means Cases")
+    _line(c, ML + 65 * mm, y, fw - 65 * mm)
+    y -= LH
+    _line(c, ML, y, fw)
+    y -= LH
+    _line(c, ML, y, fw)
+    y -= LH
+    c.drawString(ML, y + 2 * mm, "Total Number of Unfair Means Cases")
+    _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    y -= LINE_H
-    c.drawString(MARGIN_L, y + 2 * mm, "Total Number of Unfair Means Cases")
-    _line(c, MARGIN_L + 65 * mm, y, fw - 65 * mm)
-
-    # --- SIGNATURE ---
+    # Signature
     sig_y = max(y - 20 * mm, 30 * mm)
     c.setFont("Helvetica-Bold", 10)
-    c.drawRightString(W - MARGIN_R, sig_y, "Signature")
-    c.drawRightString(W - MARGIN_R, sig_y - 6 * mm, "Center Superintendent")
+    c.drawRightString(W - MR, sig_y, "Signature")
+    c.drawRightString(W - MR, sig_y - 6 * mm, "Center Superintendent")
 
-    # --- FOOTER ---
+    # Footer
     c.setLineWidth(1)
-    c.line(MARGIN_L, 20 * mm, W - MARGIN_R, 20 * mm)
+    c.line(ML, 20 * mm, W - MR, 20 * mm)
     c.setFont("Helvetica", 7.5)
     c.drawCentredString(W / 2, 15 * mm, addr)
 
@@ -156,99 +151,69 @@ def build_pdf(group, logo_bytes, exam_date="23 November 2026"):
     return buf.read()
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
+@app.route("/")
+@app.route("/api/generate")
+def generate():
+    entity = request.args.get("entity")
+    session = request.args.get("session")
+    exam_calendar = request.args.get("examCalendar")
+    exam_type = request.args.get("examType", "regular")
+    exam_date_raw = request.args.get("examDate")
+    exam_date_display = request.args.get("examDateDisplay", "23 November 2026")
 
-        def p(k):
-            return params.get(k, [None])[0]
+    if not all([entity, session, exam_calendar, exam_date_raw]):
+        return {"error": "Missing required params: entity, session, examCalendar, examDate"}, 400
 
-        entity = p("entity")
-        session = p("session")
-        exam_calendar = p("examCalendar")
-        exam_type = p("examType") or "regular"
-        exam_date_raw = p("examDate")
-        exam_date_display = p("examDateDisplay") or "23 November 2026"
+    # Fetch registrations
+    api_url = (
+        f"{API_BASE}/list/examRegistration"
+        f"?entity={entity}&session={session}&examType={exam_type}"
+        f"&admitCardStatus=approved&examDate={exam_date_raw}&examCalendar={exam_calendar}"
+    )
+    try:
+        resp = http.get(api_url, headers={"Authorization": TOKEN}, timeout=30)
+        registrations = resp.json()
+        if not isinstance(registrations, list):
+            return {"error": "ERP API error", "detail": registrations}, 502
+    except Exception as e:
+        return {"error": str(e)}, 502
 
-        token = self.headers.get("Authorization", "")
+    # Group by stream + subject
+    groups = defaultdict(lambda: {
+        "present": [], "absent": [],
+        "course": "", "stream": "", "subject": "", "subjectCode": "", "batch": ""
+    })
+    for r in registrations:
+        key = (r["stream"], r["subjectName"])
+        g = groups[key]
+        g["course"] = r["course"]
+        g["stream"] = r["stream"]
+        g["subject"] = r["subjectName"]
+        g["subjectCode"] = r["subjectCode"]
+        g["batch"] = r.get("batch", "")
+        att = r.get("examDetail", {}).get("attendanceValue", "absent")
+        (g["present"] if att == "present" else g["absent"]).append(r["studentRegNo"])
 
-        if not all([entity, session, exam_calendar, exam_date_raw, token]):
-            self._json(400, {"error": "Missing required params or Authorization header"})
-            return
+    if not groups:
+        return {"error": "No registrations found"}, 404
 
-        # Fetch registrations
-        api_url = (
-            f"{API_BASE}/list/examRegistration"
-            f"?entity={entity}&session={session}&examType={exam_type}"
-            f"&admitCardStatus=approved&examDate={exam_date_raw}&examCalendar={exam_calendar}"
-        )
-        try:
-            resp = requests.get(api_url, headers={"Authorization": token}, timeout=30)
-            registrations = resp.json()
-            if not isinstance(registrations, list):
-                self._json(502, {"error": "ERP API error", "detail": registrations})
-                return
-        except Exception as e:
-            self._json(502, {"error": str(e)})
-            return
+    # Fetch logo
+    try:
+        logo_bytes = http.get(LOGO_URL, timeout=15).content
+    except Exception:
+        logo_bytes = None
 
-        # Group by stream+subject
-        groups = defaultdict(lambda: {
-            "present": [], "absent": [],
-            "course": "", "stream": "", "subject": "", "subjectCode": "", "batch": ""
-        })
-        for r in registrations:
-            key = (r["stream"], r["subjectName"])
-            g = groups[key]
-            g["course"] = r["course"]
-            g["stream"] = r["stream"]
-            g["subject"] = r["subjectName"]
-            g["subjectCode"] = r["subjectCode"]
-            g["batch"] = r.get("batch", "")
-            att = r.get("examDetail", {}).get("attendanceValue", "absent")
-            if att == "present":
-                g["present"].append(r["studentRegNo"])
-            else:
-                g["absent"].append(r["studentRegNo"])
+    # Build zip in memory
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for (stream, _), g in sorted(groups.items()):
+            pdf_bytes = build_pdf(g, logo_bytes, exam_date_display)
+            safe = stream.replace("/", "-").replace(" ", "_")[:60]
+            zf.writestr(f"Memo_{safe}.pdf", pdf_bytes)
 
-        if not groups:
-            self._json(404, {"error": "No registrations found for given params"})
-            return
-
-        # Fetch logo once
-        try:
-            logo_bytes = requests.get(LOGO_URL, timeout=15).content
-        except Exception:
-            logo_bytes = None
-
-        # Build zip in memory
-        zip_buf = io.BytesIO()
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for (stream, _), g in sorted(groups.items()):
-                pdf_bytes = build_pdf(g, logo_bytes, exam_date_display)
-                safe = stream.replace("/", "-").replace(" ", "_")[:60]
-                zf.writestr(f"Memo_{safe}.pdf", pdf_bytes)
-
-        zip_data = zip_buf.getvalue()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Disposition", 'attachment; filename="ExamMemos.zip"')
-        self.send_header("Content-Length", str(len(zip_data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(zip_data)
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
-        self.end_headers()
-
-    def _json(self, code, body):
-        data = json.dumps(body).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+    zip_data = zip_buf.getvalue()
+    return Response(
+        zip_data,
+        mimetype="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="ExamMemos.zip"'}
+    )
