@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 import io, zipfile, requests as http
 from collections import defaultdict
 
@@ -143,7 +143,95 @@ def build_pdf(g, logo_bytes, exam_date):
     return buf.read()
 
 
-@app.get("/")
+HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exam Memo Generator – Sanskaram University</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.10); padding: 40px 48px; max-width: 480px; width: 100%; text-align: center; }
+  .logo { width: 72px; height: 72px; object-fit: contain; margin-bottom: 16px; }
+  h1 { font-size: 20px; font-weight: 700; color: #1a2340; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #666; margin-bottom: 32px; }
+  label { display: block; text-align: left; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; }
+  input[type=date] { width: 100%; padding: 12px 14px; border: 1.5px solid #d0d7e3; border-radius: 8px; font-size: 15px; color: #1a2340; outline: none; transition: border 0.2s; }
+  input[type=date]:focus { border-color: #2563eb; }
+  .btn { margin-top: 24px; width: 100%; padding: 14px; background: #1a2340; color: #fff; font-size: 15px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #2563eb; }
+  .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+  .status { margin-top: 16px; font-size: 13px; color: #2563eb; min-height: 20px; }
+  .err { color: #dc2626; }
+  footer { margin-top: 20px; font-size: 12px; color: #aaa; }
+</style>
+</head>
+<body>
+<div class="card">
+  <img class="logo" src="https://okiedokie-erp-images.s3.ap-south-1.amazonaws.com/SU/2026/03/logo/2b28998e895132ae7765-Sanskaram_University-logo.jpeg" alt="SU Logo">
+  <h1>Exam Memo Generator</h1>
+  <p class="sub">Sanskaram University, Jhajjar &nbsp;|&nbsp; 2026-27 Odd Semester</p>
+  <label for="examDate">Select Exam Date</label>
+  <input type="date" id="examDate" min="2026-11-19" max="2026-12-15">
+  <button class="btn" id="btn" onclick="download()">Download Memos (ZIP)</button>
+  <div class="status" id="status"></div>
+</div>
+<footer>OkieDookie ERP &nbsp;·&nbsp; Sanskaram University</footer>
+<script>
+function download() {
+  const d = document.getElementById('examDate').value;
+  if (!d) { setStatus('Please select a date.', true); return; }
+  const [y, m, day] = d.split('-');
+  const dateObj = new Date(y, m - 1, day);
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fullMonths = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const rawDate = `${days[dateObj.getDay()]} ${months[dateObj.getMonth()]} ${day} ${y} 00:00:00 GMT+0530 (India Standard Time)`;
+  const displayDate = `${parseInt(day)} ${fullMonths[dateObj.getMonth()]} ${y}`;
+  const params = new URLSearchParams({
+    entity: '69ca556be787fb0010ffab1f',
+    session: '2026-27 Odd',
+    examCalendar: '6ae99c04111419000deff7ec',
+    examType: 'regular',
+    examDate: rawDate,
+    examDateDisplay: displayDate
+  });
+  const btn = document.getElementById('btn');
+  btn.disabled = true;
+  setStatus('Generating memos, please wait...');
+  fetch('/api/generate?' + params)
+    .then(r => {
+      if (!r.ok) return r.json().then(e => Promise.reject(e.error || 'Server error'));
+      return r.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ExamMemos_${d}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus('Downloaded successfully!');
+    })
+    .catch(e => setStatus(e, true))
+    .finally(() => btn.disabled = false);
+}
+function setStatus(msg, err) {
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = 'status' + (err ? ' err' : '');
+}
+</script>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return HTML
+
+
 @app.get("/api/generate")
 def generate(
     entity: str,
