@@ -155,14 +155,19 @@ HTML = """<!DOCTYPE html>
   .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.10); padding: 40px 48px; max-width: 480px; width: 100%; text-align: center; }
   .logo { width: 72px; height: 72px; object-fit: contain; margin-bottom: 16px; }
   h1 { font-size: 20px; font-weight: 700; color: #1a2340; margin-bottom: 4px; }
-  .sub { font-size: 13px; color: #666; margin-bottom: 32px; }
-  label { display: block; text-align: left; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; }
-  input[type=date] { width: 100%; padding: 12px 14px; border: 1.5px solid #d0d7e3; border-radius: 8px; font-size: 15px; color: #1a2340; outline: none; transition: border 0.2s; }
-  input[type=date]:focus { border-color: #2563eb; }
+  .sub { font-size: 13px; color: #666; margin-bottom: 28px; }
+  label { display: block; text-align: left; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; margin-top: 16px; }
+  select, input[type=date] { width: 100%; padding: 12px 14px; border: 1.5px solid #d0d7e3; border-radius: 8px; font-size: 14px; color: #1a2340; outline: none; transition: border 0.2s; background: #fff; }
+  select:focus, input[type=date]:focus { border-color: #2563eb; }
+  select:disabled, input[type=date]:disabled { background: #f8fafc; color: #94a3b8; }
   .btn { margin-top: 24px; width: 100%; padding: 14px; background: #1a2340; color: #fff; font-size: 15px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
-  .btn:hover { background: #2563eb; }
+  .btn:hover:not(:disabled) { background: #2563eb; }
   .btn:disabled { background: #94a3b8; cursor: not-allowed; }
-  .status { margin-top: 16px; font-size: 13px; color: #2563eb; min-height: 20px; }
+  .progress-wrap { margin-top: 20px; display: none; }
+  .progress-track { background: #e2e8f0; border-radius: 999px; height: 8px; overflow: hidden; }
+  .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #1a2340, #2563eb); border-radius: 999px; transition: width 0.5s ease; }
+  .progress-label { margin-top: 8px; font-size: 12px; color: #64748b; text-align: center; }
+  .status { margin-top: 12px; font-size: 13px; color: #16a34a; min-height: 20px; }
   .err { color: #dc2626; }
   footer { margin-top: 20px; font-size: 12px; color: #aaa; }
 </style>
@@ -171,57 +176,165 @@ HTML = """<!DOCTYPE html>
 <div class="card">
   <img class="logo" src="https://okiedokie-erp-images.s3.ap-south-1.amazonaws.com/SU/2026/03/logo/2b28998e895132ae7765-Sanskaram_University-logo.jpeg" alt="SU Logo">
   <h1>Exam Memo Generator</h1>
-  <p class="sub">Sanskaram University, Jhajjar &nbsp;|&nbsp; 2026-27 Odd Semester</p>
-  <label for="examDate">Select Exam Date</label>
-  <input type="date" id="examDate" min="2026-11-19" max="2026-12-15">
-  <button class="btn" id="btn" onclick="download()">Download Memos (ZIP)</button>
+  <p class="sub">Sanskaram University, Jhajjar</p>
+
+  <label for="calSel">Examination</label>
+  <select id="calSel" onchange="onCalendarChange()" disabled>
+    <option value="">Loading exam calendars...</option>
+  </select>
+
+  <label for="examDate">Exam Date</label>
+  <input type="date" id="examDate" disabled>
+
+  <button class="btn" id="btn" onclick="doDownload()" disabled>Download Memos (ZIP)</button>
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="progress-label" id="progressLabel">Generating PDFs...</div>
+  </div>
   <div class="status" id="status"></div>
 </div>
 <footer>OkieDookie ERP &nbsp;·&nbsp; Sanskaram University</footer>
 <script>
-function download() {
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+let calendars = [];
+
+function toISO(utcStr) {
+  // ERP dates are midnight IST stored as T18:30:00.000Z (previous day UTC)
+  const d = new Date(utcStr);
+  d.setTime(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
+async function loadCalendars() {
+  try {
+    const r = await fetch('/api/calendars');
+    calendars = await r.json();
+    const sel = document.getElementById('calSel');
+    sel.innerHTML = '<option value="">-- Select examination --</option>';
+    calendars.forEach(cal => {
+      const opt = document.createElement('option');
+      opt.value = cal._id;
+      opt.textContent = cal.examName + ' (' + cal.session + ')';
+      opt.dataset.start = toISO(cal.startDate);
+      opt.dataset.end = toISO(cal.endDate);
+      opt.dataset.session = cal.session;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+  } catch(e) {
+    setStatus('Failed to load calendars: ' + e.message, true);
+  }
+}
+
+function onCalendarChange() {
+  const sel = document.getElementById('calSel');
+  const opt = sel.options[sel.selectedIndex];
+  const dateInput = document.getElementById('examDate');
+  const btn = document.getElementById('btn');
+  if (!opt.value) {
+    dateInput.value = ''; dateInput.disabled = true; btn.disabled = true; return;
+  }
+  dateInput.min = opt.dataset.start;
+  dateInput.max = opt.dataset.end;
+  dateInput.value = '';
+  dateInput.disabled = false;
+  btn.disabled = false;
+  setStatus('');
+}
+
+function doDownload() {
+  const sel = document.getElementById('calSel');
+  const opt = sel.options[sel.selectedIndex];
   const d = document.getElementById('examDate').value;
-  if (!d) { setStatus('Please select a date.', true); return; }
+  if (!opt.value) { setStatus('Please select an examination.', true); return; }
+  if (!d) { setStatus('Please select an exam date.', true); return; }
+
   const [y, m, day] = d.split('-');
-  const dateObj = new Date(y, m - 1, day);
-  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const fullMonths = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const rawDate = `${days[dateObj.getDay()]} ${months[dateObj.getMonth()]} ${day} ${y} 00:00:00 GMT+0530 (India Standard Time)`;
-  const displayDate = `${parseInt(day)} ${fullMonths[dateObj.getMonth()]} ${y}`;
+  const dateObj = new Date(parseInt(y), parseInt(m) - 1, parseInt(day));
+  const rawDate = `${DAYS[dateObj.getDay()]} ${MONTHS[dateObj.getMonth()]} ${day} ${y} 00:00:00 GMT+0530 (India Standard Time)`;
+  const displayDate = `${parseInt(day)} ${FULL_MONTHS[dateObj.getMonth()]} ${y}`;
+
   const params = new URLSearchParams({
     entity: '69ca556be787fb0010ffab1f',
-    session: '2026-27 Odd',
-    examCalendar: '6ae99c04111419000deff7ec',
+    session: opt.dataset.session,
+    examCalendar: opt.value,
     examType: 'regular',
     examDate: rawDate,
     examDateDisplay: displayDate
   });
+
   const btn = document.getElementById('btn');
   btn.disabled = true;
-  setStatus('Generating memos, please wait...');
+  setStatus('');
+  startProgress();
+
   fetch('/api/generate?' + params)
     .then(r => {
       if (!r.ok) return r.json().then(e => Promise.reject(e.error || 'Server error'));
       return r.blob();
     })
     .then(blob => {
+      finishProgress();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `ExamMemos_${d}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-      setStatus('Downloaded successfully!');
+      setStatus('✓ Downloaded successfully!');
     })
-    .catch(e => setStatus(e, true))
+    .catch(e => { resetProgress(); setStatus(e, true); })
     .finally(() => btn.disabled = false);
 }
+
+let progressTimer = null;
+function startProgress() {
+  const wrap = document.getElementById('progressWrap');
+  const bar = document.getElementById('progressBar');
+  const lbl = document.getElementById('progressLabel');
+  wrap.style.display = 'block';
+  bar.style.width = '0%';
+  let pct = 0;
+  const steps = [
+    [10, 'Fetching student data...'],
+    [35, 'Building PDFs...'],
+    [70, 'Packaging memos...'],
+    [90, 'Almost done...'],
+  ];
+  let si = 0;
+  progressTimer = setInterval(() => {
+    if (si < steps.length && pct >= (si === 0 ? 0 : steps[si-1][0])) {
+      lbl.textContent = steps[si][1];
+      pct = steps[si][0];
+      si++;
+    } else {
+      pct = Math.min(pct + 0.5, 92);
+    }
+    bar.style.width = pct + '%';
+  }, 400);
+}
+function finishProgress() {
+  clearInterval(progressTimer);
+  const bar = document.getElementById('progressBar');
+  const lbl = document.getElementById('progressLabel');
+  bar.style.width = '100%';
+  lbl.textContent = 'Done!';
+  setTimeout(() => { document.getElementById('progressWrap').style.display = 'none'; }, 1500);
+}
+function resetProgress() {
+  clearInterval(progressTimer);
+  document.getElementById('progressWrap').style.display = 'none';
+}
+
 function setStatus(msg, err) {
   const s = document.getElementById('status');
   s.textContent = msg;
   s.className = 'status' + (err ? ' err' : '');
 }
+
+loadCalendars();
 </script>
 </body>
 </html>"""
@@ -230,6 +343,20 @@ function setStatus(msg, err) {
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTML
+
+
+@app.get("/api/calendars")
+def calendars(entity: str = "69ca556be787fb0010ffab1f", session: str = "2026-27 Odd"):
+    try:
+        r = http.get(
+            f"{API_BASE}/list/examCalendar",
+            params={"entity": entity, "session": session},
+            headers={"Authorization": TOKEN},
+            timeout=15
+        )
+        return JSONResponse(r.json())
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @app.get("/api/generate")
