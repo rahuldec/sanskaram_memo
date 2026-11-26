@@ -68,7 +68,7 @@ def build_pdf(g, logo_bytes, exam_date):
     y -= LH
     _field(c, "Name of the Program", g["course"], ML, y, lw, fw)
     y -= LH
-    _field(c, "Course Name", g["subject"], ML, y, lw, fw)
+    _field(c, "Course Name", g["stream"], ML, y, lw, fw)
     y -= LH
     _field(c, "Course Code", g["subjectCode"], ML, y, lw, fw)
     y -= LH
