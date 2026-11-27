@@ -119,13 +119,23 @@ def build_pdf(g, logo_bytes, exam_date):
     y -= LH + 3 * mm
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y, "Roll Number of Unfair Means Cases")
+    ufm_rows = _chunks(sorted(g["ufm"])) if g["ufm"] else [""]
+    c.setFont("Helvetica", 9)
+    c.drawString(ML + 65 * mm, y, ufm_rows[0])
     _line(c, ML + 65 * mm, y, fw - 65 * mm)
+    for row in ufm_rows[1:]:
+        y -= LH
+        c.drawString(ML + 2 * mm, y, row)
+        _line(c, ML, y, fw)
+    for _ in range(max(0, 3 - len(ufm_rows))):
+        y -= LH
+        _line(c, ML, y, fw)
+
     y -= LH
-    _line(c, ML, y, fw)
-    y -= LH
-    _line(c, ML, y, fw)
-    y -= LH
+    c.setFont("Helvetica-Bold", 9)
     c.drawString(ML, y + 2 * mm, "Total Number of Unfair Means Cases")
+    c.setFont("Helvetica", 9)
+    c.drawString(ML + 65 * mm, y + 2 * mm, str(len(g["ufm"])) if g["ufm"] else "")
     _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
     sig_y = max(y - 22 * mm, 32 * mm)
@@ -387,7 +397,7 @@ def generate(
         return JSONResponse({"error": str(e)}, status_code=502)
 
     groups = defaultdict(lambda: {
-        "present": [], "absent": [],
+        "present": [], "absent": [], "ufm": [],
         "course": "", "stream": "", "subject": "", "subjectCode": "", "batch": ""
     })
     for r in registrations:
@@ -399,7 +409,12 @@ def generate(
         g["subjectCode"] = r["subjectCode"]
         g["batch"] = r.get("batch", "")
         att = r.get("examDetail", {}).get("attendanceValue", "absent")
-        (g["present"] if att == "present" else g["absent"]).append(r["studentRegNo"])
+        if att == "present":
+            g["present"].append(r["studentRegNo"])
+        elif att == "ufm":
+            g["ufm"].append(r["studentRegNo"])
+        else:
+            g["absent"].append(r["studentRegNo"])
 
     if not groups:
         return JSONResponse({"error": "No registrations found"}, status_code=404)
