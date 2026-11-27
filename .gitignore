@@ -1,4 +1,5 @@
 *.jpeg
-*.jpg
 *.png
 __pycache__/
+# signature is intentionally tracked
+!api/signature.jpg

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
-import io, zipfile, requests as http
+import io, zipfile, requests as http, os
 from collections import defaultdict
 
 from reportlab.lib.pagesizes import A4
@@ -128,10 +128,15 @@ def build_pdf(g, logo_bytes, exam_date):
     c.drawString(ML, y + 2 * mm, "Total Number of Unfair Means Cases")
     _line(c, ML + 65 * mm, y, fw - 65 * mm)
 
-    sig_y = max(y - 20 * mm, 30 * mm)
+    sig_y = max(y - 22 * mm, 32 * mm)
+    sig_path = os.path.join(os.path.dirname(__file__), "signature.jpg")
+    if os.path.exists(sig_path):
+        sig_w, sig_h = 35 * mm, 18 * mm
+        c.drawImage(sig_path, W - MR - sig_w, sig_y, width=sig_w, height=sig_h,
+                    preserveAspectRatio=True, mask='auto')
     c.setFont("Helvetica-Bold", 10)
-    c.drawRightString(W - MR, sig_y, "Signature")
-    c.drawRightString(W - MR, sig_y - 6 * mm, "Center Superintendent")
+    c.drawRightString(W - MR, sig_y - 6 * mm, "(Dr. Kapil Dev)")
+    c.drawRightString(W - MR, sig_y - 12 * mm, "Center Superintendent")
 
     c.setLineWidth(1)
     c.line(ML, 20 * mm, W - MR, 20 * mm)
